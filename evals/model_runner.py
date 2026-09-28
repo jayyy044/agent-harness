@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import time 
 import tempfile
 import traceback
 from functools import partial
@@ -23,6 +24,7 @@ async def run_case(case) -> tuple[bool, str]:
 
         try:
             out = await modelTurns(history, tools=tools, max_hops=case.get("max_hops", 5))
+
         except Exception:
             return False, traceback.format_exc(limit=1).strip()
 
@@ -40,7 +42,9 @@ async def main():
     for case in ALL_CASES:
         passed, detail = await run_case(case)
         results.append(passed)
-        print(f"{'PASS' if passed else 'FAIL'}  {case['name']:24} {detail}")
+        print(f"{'PASS' if passed else 'FAIL'}  {case['name']:24} {detail}\n")
+        print("[Pausing to prevent rate limiting, 5s]")
+        time.sleep(5)
 
     print(f"\n{sum(results)}/{len(results)} passed")
 

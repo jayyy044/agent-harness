@@ -5,10 +5,13 @@ from .basic_func.budgetExhaustion import CASES as BUDGET
 from .basic_func.resume import CASES as RESUME
 
 from .tools.read_specific_line import CASES as READLINE
+from .tools.write_file import CASES as WRITE_FILE
 
-#Stage 1
-ALL_CASES = [*BASIC, *NO_CWD, *TRUNC, *BUDGET, *RESUME]
+# Stage 1
+STAGE_1 = [*BASIC, *NO_CWD, *TRUNC, *BUDGET, *RESUME]
 
 # Stage 2 - Tools
-# ALL_CASES = [*READLINE]
+STAGE_2 = [*READLINE, *WRITE_FILE]
+
+ALL_CASES = [*STAGE_1, *STAGE_2]
 

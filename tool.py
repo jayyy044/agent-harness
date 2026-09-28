@@ -88,6 +88,7 @@ read_file_tool = {
         }
     }
 }
+
 def read_file(path: str, offset: int = 1, limit: int = 200, cwd: str | None = None) -> str:
     limit = max(1, min(limit, 200))
     offset = max(1, offset)
@@ -124,9 +125,53 @@ def read_file(path: str, offset: int = 1, limit: int = 200, cwd: str | None = No
     return body + footer
 
 
+write_file_tool = {
+    "type": "function",
+    "function": {
+        "name": "write_file",
+        "description": (
+            "Write text to a file, replacing its entire contents. Creates the file "
+            "and any missing parent directories if they do not exist. "
+            "Prefer this over echo or heredocs in bash: content is written exactly "
+            "as given, with no shell quoting or escaping. "
+            "Overwrites without asking, so read the file first if it may already "
+            "exist and you only mean to change part of it. "
+            "Result says how many lines and bytes were written."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file, relative to the working directory."
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The full new contents of the file."
+                }
+            },
+            "required": ["path", "content"]
+        }
+    }
+}
+def write_file(path: str, content: str, cwd: str | None = None) -> str:
+    p = Path(cwd or ".") / path
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+    except IsADirectoryError:
+        return f"error: {path} is a directory"
+    except OSError as e:          # parent is a file, permission denied, disk full
+        return f"error: could not write {path}: {e.strerror or e}"
+
+    lines = len(content.splitlines())
+    return f"wrote {lines} lines ({len(content.encode())} bytes) to {path}"
+
+
 # name -> (schema, fn). The one place a tool is listed: the schema the model
 # sees and the function that runs can't drift apart.
 REGISTRY = {
     "bash": (bash_tool, bash),
     "read_file": (read_file_tool, read_file),
+    "write_file": (write_file_tool, write_file),
 }

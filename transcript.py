@@ -10,6 +10,14 @@ class Transcript(list):
         super().append(msg)
         self.f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
+    # append is the only write that reaches disk. Anything else would change
+    # memory without the file, and --resume would load a different history.
+    def _append_only(self, *args, **kwargs):
+        raise TypeError("Transcript is append-only; any other change skips the file")
+
+    __delitem__ = __setitem__ = __iadd__ = _append_only
+    insert = extend = pop = remove = clear = sort = reverse = _append_only
+
     def load(self):
         for line in self.path.read_text().splitlines():
             if line.strip():

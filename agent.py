@@ -46,15 +46,17 @@ async def main():
             print(f"resume this session by python3 agent.py --resume {session_id}")
             break
 
-        mark = len(history)
         history.append({"role": "user", "content": line})
         try:
             reply = await modelTurns(history, tools=REGISTRY)
         except requests.HTTPError as e:
             print(f"\n[groq error: {e}]")
-            del history[mark:]
+            # keep the failed turn: it is already on disk, and deleting it from
+            # memory only would make --resume load a different history. Tell the
+            # model instead, so it knows any tool calls above did run.
+            history.append({"role": "user", "content":
+                f"[harness] the request above failed and got no answer: {str(e)[:300]}"})
             continue
-
 
         print(reply)
 
