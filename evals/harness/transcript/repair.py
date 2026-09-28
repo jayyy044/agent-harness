@@ -2,7 +2,7 @@
 import tempfile
 from pathlib import Path
 
-from transcripts import Transcript
+from transcript import Transcript
 from ._fixtures import SYS, USR, TEXT, call, result, write
 
 

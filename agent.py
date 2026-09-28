@@ -1,148 +1,13 @@
 import asyncio
-import os
-import requests
-from dotenv import load_dotenv
-from tool import bash_tool, bash, read_file, read_file_tool
-import json , uuid
-from pathlib import Path
-from transcripts import Transcript
 import sys
+import uuid
+from pathlib import Path
 
-TOOLS = [bash_tool, read_file_tool]
-DISPATCH = {"bash": bash, "read_file" : read_file}
+import requests
 
-load_dotenv()
-
-MODEL = "openai/gpt-oss-120b"
-
-RETRYABLE = {429, 500, 502, 503, 529}
-
-
-async def modelRequest(messages: list[dict], tools: list[dict] | None = None, retries: int = 4) -> dict:
-    """POST one chat completion to Groq and return the parsed JSON body."""
-    body = {
-        "model": MODEL,
-        "messages": messages,
-        "reasoning_effort": "high",
-        "temperature": 0,
-        "top_p": 1,
-        "max_completion_tokens": 4096,
-    }
-    if tools:
-        body["tools"] = tools
-        body["tool_choice"] = "auto"
-
-    for attempt in range(retries):
-        # ponytail: requests is sync, run in a thread; swap for httpx if streaming needed
-        resp = await asyncio.to_thread(
-            requests.post,
-            url="https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {os.environ['groqKey']}",
-                "Content-Type": "application/json",
-            },
-            json=body,
-            timeout=300
-        )
-
-        if resp.status_code in RETRYABLE and attempt < retries - 1:
-            wait = float(resp.headers.get("retry-after", 2 ** attempt))
-            print(f"[{resp.status_code}, retrying in {wait}s]")
-            await asyncio.sleep(wait)
-            continue
-
-        if resp.status_code >= 400:
-            raise requests.HTTPError(f"{resp.status_code}: {resp.text}", response=resp)
-
-        return resp.json()
-
-
-def cleanMsg(msg: dict) -> dict:
-    """Strip provider-specific extras; keep only what the API accepts back."""
-    out = {"role": "assistant", "content": msg.get("content")}
-    if msg.get("tool_calls"):
-        out["tool_calls"] = msg["tool_calls"]
-    return out
-
-
-def toolRun(calls, history, hops_left, dispatch):
-    for call in calls:
-        name = call["function"]["name"]
-        fn = dispatch.get(name)
-        try:
-            args = json.loads(call["function"]["arguments"] or "{}")
-            print(f"Tool Run: [{name}] {args}")
-            result = fn(**args) if fn else f"unknown tool: {name}"
-            print("Tool Run Output: ", result, "\n")
-        except Exception as e:
-            result = f"error: {e}"
-
-        history.append({
-            "role": "tool",
-            "tool_call_id": call["id"],
-            "content": f"{result}\n\n" + (
-                "[tool budget exhausted — answer now with what you have so far]"
-                if hops_left == 0 else
-                f"[{hops_left} tool iterations left this turn]"
-            ),
-        })
-
-
-async def askModel(history: list[dict]) -> dict:
-    """One model request, appended to history. If the provider rejects the
-    model's own tool call (made-up tool name, bad JSON), tell the model what was
-    wrong and ask once more instead of dying — the model never saw its mistake."""
-    try:
-        reply = await modelRequest(history, tools=TOOLS)
-    except requests.HTTPError as e:
-        err = {}
-        try:
-            err = e.response.json().get("error", {})
-        except Exception:
-            pass
-        if err.get("code") != "tool_use_failed":
-            raise
-        names = ", ".join(t["function"]["name"] for t in TOOLS)
-        history.append({"role": "user", "content":
-            f"[harness] Your last tool call was rejected: {err.get('message')}. "
-            f"Available tools: {names}. For grep, sed, find and similar, use bash."})
-        reply = await modelRequest(history, tools=TOOLS)
-    msg = reply["choices"][0]["message"]
-    history.append(cleanMsg(msg))
-    return msg
-
-
-async def modelTurns(history: list[dict], dispatch: dict, max_hops: int = 5) -> str:
-    msg = await askModel(history)
-
-    for i in range(max_hops):
-        calls = msg.get("tool_calls")
-        if not calls:
-            return msg["content"]
-
-        toolRun(calls, history, hops_left=max_hops - i - 1, dispatch=dispatch)
-
-        msg = await askModel(history)
-
-    # budget spent; model may still ask for tools. Refuse to run them, ask once
-    # more for text. Tools stay in the request so the API never rejects a call.
-    if msg.get("tool_calls"):
-        for call in msg["tool_calls"]:
-            history.append({
-                "role": "tool",
-                "tool_call_id": call["id"],
-                "content": "[tool budget exhausted — answer now with what you have so far]",
-            })
-        msg = await askModel(history)
-
-    return msg["content"] or "[no answer: tool budget exhausted]"
-
-SYSTEM = (
-    "You are a coding agent working inside a git repository. Your job is to "
-    "complete the user's task, not to explore the repository.\n\n"
-    "Rules:\n"
-    "- If the task is genuinely ambiguous, ask one short question. Otherwise act."
-)
+from loop import modelTurns, SYSTEM
+from tool import REGISTRY
+from transcript import Transcript
 
 
 async def main():
@@ -184,7 +49,7 @@ async def main():
         mark = len(history)
         history.append({"role": "user", "content": line})
         try:
-            reply = await modelTurns(history, dispatch=DISPATCH)
+            reply = await modelTurns(history, tools=REGISTRY)
         except requests.HTTPError as e:
             print(f"\n[groq error: {e}]")
             del history[mark:]

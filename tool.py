@@ -1,4 +1,3 @@
-import json
 import subprocess
 from pathlib import Path
 
@@ -124,3 +123,10 @@ def read_file(path: str, offset: int = 1, limit: int = 200, cwd: str | None = No
         footer = f"\n\n[showing {offset}-{end} of {total} lines; call again with offset={end + 1}]"
     return body + footer
 
+
+# name -> (schema, fn). The one place a tool is listed: the schema the model
+# sees and the function that runs can't drift apart.
+REGISTRY = {
+    "bash": (bash_tool, bash),
+    "read_file": (read_file_tool, read_file),
+}

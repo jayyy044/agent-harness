@@ -1,5 +1,5 @@
 from pathlib import Path
-from transcripts import Transcript
+from transcript import Transcript
 import json
 
 SECRET = "alpine-quartz"
